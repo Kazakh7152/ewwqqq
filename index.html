@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Хакерская мини-игра — Зона</title>
+  <style>
+    :root{--bg:#0b0b09;--accent:#7be24a;--accent2:#9ad45a;--red:#d94b4b;--panel:#12120f}
+    html,body{height:100%;margin:0;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;background:radial-gradient(ellipse at top left,#071007 0%, #030303 60%), url('') center/cover no-repeat; color:#cfd3c4}
+    .wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .console{width:980px;max-width:96%;background:linear-gradient(180deg, rgba(18,18,15,0.9), rgba(5,5,5,0.9));border:1px solid rgba(120,120,120,0.06);box-shadow:0 8px 40px rgba(0,0,0,.6);padding:20px;border-radius:12px;position:relative;overflow:hidden}
+    .header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+    .title{font-weight:700;letter-spacing:1px;font-size:20px}
+    .sub{font-size:12px;color:#9aa08d}
+
+    /* Meter */
+    .meter-wrap{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+    .meter{flex:1;height:26px;background:linear-gradient(90deg,#222 0%,#181816 100%);border-radius:6px;padding:3px;border:1px solid rgba(255,255,255,0.03)}
+    .meter > .fill{height:100%;width:0%;background:linear-gradient(90deg,var(--accent) 0%, var(--accent2) 100%);border-radius:4px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;font-weight:700;color:#041b03}
+    .meter-label{min-width:120px;text-align:right;font-weight:600}
+
+    /* Question card */
+    .card{background:linear-gradient(180deg, rgba(0,0,0,0.25), rgba(0,0,0,0.15));padding:18px;border-radius:8px;border:1px solid rgba(255,255,255,0.02);margin-bottom:16px}
+    .question{font-size:18px;margin-bottom:12px}
+    .answers{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .ans{background:#0f0f0d;padding:12px;border-radius:6px;border:1px solid rgba(255,255,255,0.04);cursor:pointer;user-select:none;transition:transform .08s,opacity .12s}
+    .ans:hover{transform:translateY(-3px)}
+    .ans.disabled{opacity:.6;cursor:default}
+    .ans.correct{outline:3px solid rgba(123,226,74,0.18);box-shadow:0 6px 18px rgba(66,120,34,0.12)}
+    .ans.wrong{outline:3px solid rgba(217,75,75,0.12)}
+
+    .footer{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+    .meta{font-size:13px;color:#9aa08d}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:8px 12px;border-radius:8px;color:#cfd3c4;cursor:pointer}
+    .btn:hover{opacity:.9}
+
+    .overlay{position:absolute;inset:0;background:linear-gradient(180deg, rgba(0,0,0,0.6), rgba(0,0,0,0.85));display:flex;align-items:center;justify-content:center;backdrop-filter: blur(2px);}
+    .overlay .box{background:#080806;padding:22px;border-radius:10px;text-align:center;border:1px solid rgba(255,255,255,0.04)}
+    .overlay h2{margin:0 0 8px;color:var(--accent2)}
+    .small{font-size:13px;color:#9aa08d}
+
+    /* Small decorative */
+    .glitch{position:absolute;right:-60px;top:-60px;width:220px;height:220px;background:conic-gradient(from 120deg, rgba(123,226,74,0.06), transparent 20%),linear-gradient(180deg, rgba(0,0,0,0.2), transparent);filter:blur(14px);transform:rotate(20deg);opacity:.25}
+
+    @media (max-width:520px){.answers{grid-template-columns:1fr}.meter-label{display:none}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="console" id="console">
+      <div class="glitch"></div>
+      <div class="header">
+        <div>
+          <div class="title">Хакерская мини-игра — Зона</div>
+          <div class="sub">20 заданий · 4 варианта ответа · заполни шкалу — успешный взлом</div>
+        </div>
+      </div>
+
+      <div class="meter-wrap">
+        <div class="meter" aria-hidden>
+          <div class="fill" id="meterFill">0%</div>
+        </div>
+        <div class="meter-label" id="meterLabel">Шкала: 0 / 100</div>
+      </div>
+
+      <div class="card">
+        <div class="question" id="questionText">Загружается...</div>
+        <div class="answers" id="answers"></div>
+      </div>
+
+      <div class="footer">
+        <div class="meta" id="progressMeta">Вопрос 0 из 20 · Правильно: 0 · Неверно: 0</div>
+        <div>
+          <button class="btn" id="nextBtn" disabled>Пропустить</button>
+          <button class="btn" id="restartBtn">Перезапустить</button>
+        </div>
+      </div>
+
+      <div class="overlay" id="overlay" style="display:none">
+        <div class="box">
+          <h2 id="overlayTitle">Результат</h2>
+          <div class="small" id="overlayText"></div>
+          <div style="height:12px"></div>
+          <button class="btn" id="overlayBtn">Играть снова</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    // === Настройки игры ===
+    const TOTAL_QUESTIONS = 20;
+    const TARGET = 100; // цель шкалы для успешного взлома
+    const DELTA = 5; // сколько даётся за правильный/неправильный ответ (прибавляется/убавляется)
+
+    // Список вопросов (20). Чтобы изменить — правьте этот массив.
+    const QUESTIONS = [
+      {q:'Сколько будет 2 + 2?', a:['3','4','5','6'], correct:1},
+      {q:'Цвет неба днём?', a:['Зелёный','Красный','Синий','Чёрный'], correct:2},
+      {q:'Сколько минут в часе?', a:['30','60','90','45'], correct:1},
+      {q:'Как называется планета, на которой мы живём?', a:['Марс','Земля','Венера','Юпитер'], correct:1},
+      {q:'Сколько пальцев на одной руке обычно?', a:['3','4','5','6'], correct:2},
+      {q:'Какой предмет нужен для письма?', a:['Ложка','Карандаш','Тарелка','Ведро'], correct:1},
+      {q:'Какое время суток перед утром?', a:['Ночь','День','Вечер','Полдень'], correct:0},
+      {q:'Сколько дней в неделе?', a:['5','6','7','8'], correct:2},
+      {q:'Какой орган отвечает за дыхание?', a:['Печень','Сердце','Легкие','Кишечник'], correct:2},
+      {q:'Какой звук издаёт собака?', a:['Мяу','Кря','Гав','Чирик'], correct:2},
+      {q:'Какой фрукт жёлтый и длинный?', a:['Яблоко','Апельсин','Банан','Виноград'], correct:2},
+      {q:'Сколько континентов на Земле?', a:['3','5','7','10'], correct:2},
+      {q:'Что мы пьем чтобы не засохнуть?', a:['Воду','Камень','Нож','Книга'], correct:0},
+      {q:'Какой холодный сезон идёт после осени?', a:['Лето','Весна','Зима','Дождь'], correct:2},
+      {q:'Что разносят почтальоны?', a:['Письма','Дрова','Рыбу','Молоко'], correct:0},
+      {q:'Сколько месяцев в году?', a:['10','11','12','13'], correct:2},
+      {q:'Как называется большой круглый предмет на небе днём?', a:['Луна','Звезда','Солнце','Комета'], correct:2},
+      {q:'Чем режут бумагу?', a:['Ключом','Ножницами','Кисточкой','Сковородой'], correct:1},
+      {q:'Какое животное умеет летать?', a:['Слон','Птица','Корова','Змея'], correct:1},
+      {q:'Какая фигура имеет три стороны?', a:['Квадрат','Круг','Треугольник','Прямоугольник'], correct:2}
+    ];
+
+    // === Переменные состояния ===
+    let order=[];
+    let idx=0;
+    let correctCount=0, wrongCount=0;
+    let meter=0;
+
+    const questionText = document.getElementById('questionText');
+    const answersEl = document.getElementById('answers');
+    const meterFill = document.getElementById('meterFill');
+    const meterLabel = document.getElementById('meterLabel');
+    const progressMeta = document.getElementById('progressMeta');
+    const nextBtn = document.getElementById('nextBtn');
+    const restartBtn = document.getElementById('restartBtn');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayText = document.getElementById('overlayText');
+    const overlayBtn = document.getElementById('overlayBtn');
+
+    function init(){
+      // сформировать случайный порядок вопросов
+      order = Array.from({length:QUESTIONS.length},(_,i)=>i).sort(()=>Math.random()-0.5).slice(0,TOTAL_QUESTIONS);
+      idx=0;correctCount=0;wrongCount=0;meter=0;
+      updateMeter();
+      renderQuestion();
+      overlay.style.display='none';
+    }
+
+    function renderQuestion(){
+      const qIdx = order[idx];
+      const q = QUESTIONS[qIdx];
+      questionText.textContent = q ? ( (idx+1) + '. ' + q.q) : '---';
+      answersEl.innerHTML='';
+      if(!q) return;
+      q.a.forEach((txt,i)=>{
+        const btn = document.createElement('div');
+        btn.className='ans';
+        btn.tabIndex=0;
+        btn.textContent = txt;
+        btn.onclick = ()=> handleAnswer(i);
+        answersEl.appendChild(btn);
+      });
+      progressMeta.textContent = `Вопрос ${idx+1} из ${TOTAL_QUESTIONS} · Правильно: ${correctCount} · Неверно: ${wrongCount}`;
+      nextBtn.disabled=false;
+    }
+
+    function handleAnswer(choice){
+      nextBtn.disabled=true;
+      const qIdx = order[idx];
+      const q = QUESTIONS[qIdx];
+      const nodes = Array.from(answersEl.children);
+      // пометим выбранное
+      nodes.forEach((n,i)=>{ n.classList.add('disabled'); if(i===q.correct) n.classList.add('correct'); });
+      if(choice===q.correct){
+        correctCount++; meter = Math.min(TARGET, meter + DELTA);
+        nodes[choice].classList.add('correct');
+      } else {
+        wrongCount++; meter = Math.max(0, meter - DELTA);
+        nodes[choice].classList.add('wrong');
+      }
+      updateMeter();
+      setTimeout(()=>{
+        idx++;
+        if(meter>=TARGET){
+          showResult(true);
+          return;
+        }
+        if(idx>=TOTAL_QUESTIONS){
+          // конец вопросов
+          if(meter>=TARGET) showResult(true); else showResult(false);
+          return;
+        }
+        renderQuestion();
+      },700);
+    }
+
+    function updateMeter(){
+      const pct = Math.round((meter/TARGET)*100);
+      meterFill.style.width = pct + '%';
+      meterFill.textContent = pct + '%';
+      meterLabel.textContent = `Шкала: ${meter} / ${TARGET}`;
+      progressMeta.textContent = `Вопрос ${Math.min(idx+1,TOTAL_QUESTIONS)} из ${TOTAL_QUESTIONS} · Правильно: ${correctCount} · Неверно: ${wrongCount}`;
+    }
+
+    function showResult(success){
+      overlay.style.display='flex';
+      if(success){
+        overlayTitle.textContent = 'Взлом успешен';
+        overlayText.textContent = `Шкала достигла ${meter}/${TARGET}. Вы прошли.`;
+      } else {
+        overlayTitle.textContent = 'Взлом провалён';
+        overlayText.textContent = `Шкала ${meter}/${TARGET}. Игра обновится.`;
+        // через 2.5 секунды перезагрузим страницу (сброс игры)
+        setTimeout(()=>location.reload(),2500);
+      }
+    }
+
+    nextBtn.onclick = ()=>{
+      // Пропуск — считается как неверный ответ
+      wrongCount++; meter = Math.max(0, meter - DELTA);
+      idx++;
+      updateMeter();
+      if(idx>=TOTAL_QUESTIONS){ if(meter>=TARGET) showResult(true); else showResult(false); } else renderQuestion();
+    }
+    restartBtn.onclick = ()=>{ init(); }
+    overlayBtn.onclick = ()=>{ init(); }
+
+    // старт
+    init();
+  </script>
+</body>
+</html>
